@@ -181,31 +181,37 @@ export async function getFamilySuggestions(
  */
 export async function getNextRecipeToRate(
   profileId: string,
-  authHeader: string
+  authHeader: string,
+  excludeId?: string
 ): Promise<Recipe | null> {
   const supabase = createServerClient(authHeader);
-  
+
   // Count user's ratings
   const { count } = await supabase
     .from('ratings')
     .select('*', { count: 'exact', head: true })
     .eq('profile_id', profileId);
-  
+
   const ratingCount = count || 0;
-  
+
   // Get IDs of already-rated recipes
   const { data: ratedRecipes } = await supabase
     .from('ratings')
     .select('recipe_id')
     .eq('profile_id', profileId);
-  
+
   const ratedIds = (ratedRecipes || []).map(r => r.recipe_id);
-  
+
+  // Also exclude the specified recipe (to avoid showing the same recipe twice)
+  if (excludeId && !ratedIds.includes(excludeId)) {
+    ratedIds.push(excludeId);
+  }
+
   // Build query for unrated recipes
   let query = supabase
     .from('recipes')
     .select('*');
-  
+
   if (ratedIds.length > 0) {
     query = query.not('id', 'in', `(${ratedIds.join(',')})`);
   }

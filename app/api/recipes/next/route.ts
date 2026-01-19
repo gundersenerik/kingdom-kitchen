@@ -35,10 +35,14 @@ export async function GET(request: NextRequest) {
     if (profileError || !profile) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
     }
-    
+
+    // Get exclude parameter (to avoid returning the same recipe twice)
+    const { searchParams } = new URL(request.url);
+    const excludeId = searchParams.get('exclude');
+
     // Get next recipe
-    const recipe = await getNextRecipeToRate(profile.id, authHeader);
-    
+    const recipe = await getNextRecipeToRate(profile.id, authHeader, excludeId || undefined);
+
     const response: NextRecipeResponse = {
       recipe: recipe,
     };

@@ -23,12 +23,16 @@ export default function RatePage() {
   const [showUndoToast, setShowUndoToast] = useState(false);
 
   // Prefetch next recipe
-  const prefetchNextRecipe = useCallback(async () => {
+  const prefetchNextRecipe = useCallback(async (excludeId?: string) => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return null;
 
-      const response = await fetch('/api/recipes/next', {
+      const url = excludeId
+        ? `/api/recipes/next?exclude=${excludeId}`
+        : '/api/recipes/next';
+
+      const response = await fetch(url, {
         headers: { 'Authorization': `Bearer ${session.access_token}` },
       });
 
@@ -120,21 +124,26 @@ export default function RatePage() {
 
       setRatingCount(prev => prev + 1);
 
+      // Store the current recipe ID before moving on
+      const currentRecipeId = recipe.id;
+
       // Move to next recipe - if we have a prefetched one, use it
       // Otherwise fetch a new one immediately
       if (nextRecipe) {
         setRecipe(nextRecipe);
         setNextRecipe(null);
-        // Prefetch another
-        const next = await prefetchNextRecipe();
+        // Prefetch another (exclude the one we just showed)
+        const next = await prefetchNextRecipe(nextRecipe.id);
         setNextRecipe(next);
       } else {
-        // No prefetched recipe available, fetch one now
-        const next = await prefetchNextRecipe();
+        // No prefetched recipe available, fetch one now (exclude the one we just rated)
+        const next = await prefetchNextRecipe(currentRecipeId);
         setRecipe(next);
         // And prefetch another
-        const nextNext = await prefetchNextRecipe();
-        setNextRecipe(nextNext);
+        if (next) {
+          const nextNext = await prefetchNextRecipe(next.id);
+          setNextRecipe(nextNext);
+        }
       }
 
     } catch (err) {
