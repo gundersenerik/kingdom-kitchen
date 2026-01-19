@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState, useCallback } from 'react';
+import { useRef, useState, useCallback, useEffect } from 'react';
 import Image from 'next/image';
 import { Recipe } from '@/lib/types';
 
@@ -18,6 +18,12 @@ export function SwipeCard({ recipe, onSwipeLeft, onSwipeRight, onTap }: SwipeCar
   const [startPos, setStartPos] = useState({ x: 0, y: 0 });
   const [swipeDirection, setSwipeDirection] = useState<'left' | 'right' | null>(null);
   const [exitAnimation, setExitAnimation] = useState<'left' | 'right' | null>(null);
+  const [imageError, setImageError] = useState(false);
+
+  // Reset image error state when recipe changes
+  useEffect(() => {
+    setImageError(false);
+  }, [recipe.id]);
 
   const SWIPE_THRESHOLD = 100;
   const ROTATION_FACTOR = 0.1;
@@ -124,7 +130,7 @@ export function SwipeCard({ recipe, onSwipeLeft, onSwipeRight, onTap }: SwipeCar
         onClick={() => !isDragging && onTap?.()}
       >
         {/* Image */}
-        {recipe.image_url ? (
+        {recipe.image_url && !imageError ? (
           <Image
             src={recipe.image_url}
             alt={recipe.name}
@@ -132,9 +138,10 @@ export function SwipeCard({ recipe, onSwipeLeft, onSwipeRight, onTap }: SwipeCar
             className="recipe-card-image"
             unoptimized
             draggable={false}
+            onError={() => setImageError(true)}
           />
         ) : (
-          <div className="recipe-card-image bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center">
+          <div className="recipe-card-image bg-gradient-to-br from-orange-400 to-red-500 flex items-center justify-center">
             <span className="text-8xl">🍽️</span>
           </div>
         )}
