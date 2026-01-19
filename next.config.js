@@ -8,6 +8,14 @@ const nextConfig = {
       },
       {
         protocol: 'https',
+        hostname: '**.arla.com',  // Arla CDN uses .com domain
+      },
+      {
+        protocol: 'https',
+        hostname: 'images.arla.com',  // Explicit Arla image CDN
+      },
+      {
+        protocol: 'https',
         hostname: '**.koket.se',
       },
       {
