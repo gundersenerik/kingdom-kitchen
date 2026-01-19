@@ -57,13 +57,38 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 SOURCES = {
     'arla': {
         'base_url': 'https://www.arla.se',
-        'recipe_list': 'https://www.arla.se/recept/',
+        'recipe_path': '/recept/',
+        'supports_scraper': True,
+    },
+    'ica': {
+        'base_url': 'https://www.ica.se',
+        'recipe_path': '/recept/',
         'supports_scraper': True,
     },
     'koket': {
         'base_url': 'https://www.koket.se',
-        'recipe_list': 'https://www.koket.se/recept',
-        'supports_scraper': True,  # Wild mode
+        'recipe_path': '/',
+        'supports_scraper': True,
+    },
+    'tasteline': {
+        'base_url': 'https://www.tasteline.com',
+        'recipe_path': '/recept/',
+        'supports_scraper': True,
+    },
+    'coop': {
+        'base_url': 'https://www.coop.se',
+        'recipe_path': '/recept/',
+        'supports_scraper': True,
+    },
+    'receptse': {
+        'base_url': 'https://recept.se',
+        'recipe_path': '/',
+        'supports_scraper': True,
+    },
+    'godare': {
+        'base_url': 'https://www.godare.se',
+        'recipe_path': '/recept/',
+        'supports_scraper': True,
     },
 }
 
@@ -380,125 +405,334 @@ def save_recipe(recipe: dict) -> bool:
         return False
 
 
-def get_recipe_urls_from_sitemap(source: str, limit: int = 100) -> list:
-    """Get recipe URLs from a source's sitemap or listing."""
+def get_existing_urls() -> set:
+    """Get URLs already in the database to avoid re-scraping."""
+    try:
+        result = supabase.table('recipes').select('url').execute()
+        return {r['url'] for r in result.data} if result.data else set()
+    except:
+        return set()
 
-    if source == 'arla':
-        # Fetch real recipe URLs from Arla's sitemap
-        print("Fetching recipe URLs from Arla sitemap...")
-        urls = []
 
+# Source-specific configuration for URL discovery
+SOURCE_CONFIG = {
+    'arla': {
+        'base_url': 'https://www.arla.se',
+        'recipe_pattern': '/recept/',
+        'skip_patterns': ['/samling/', '/arla-mat-app/', '/matkanalen/', '/inspiration/', '/arla-mat/', '/kategori/'],
+        'category_pages': [
+            '/recept/', '/recept/samling/vardag/', '/recept/samling/middag/', '/recept/samling/lunch/',
+            '/recept/samling/snabb-middag/', '/recept/samling/billig/', '/recept/samling/kyckling/',
+            '/recept/samling/pasta/', '/recept/samling/fisk/', '/recept/samling/vegetariskt/',
+            '/recept/samling/soppa/', '/recept/samling/gratang/', '/recept/samling/sallad/',
+            '/recept/samling/gryta/', '/recept/samling/korv/', '/recept/samling/kottfars/',
+            '/recept/samling/lax/', '/recept/samling/potatis/', '/recept/samling/ris/',
+            '/recept/samling/wok/', '/recept/samling/pizza/', '/recept/samling/tacos/',
+            '/recept/samling/thai/', '/recept/samling/indiskt/', '/recept/samling/italienskt/',
+            '/recept/samling/mexikanskt/', '/recept/samling/asiatiskt/',
+        ],
+    },
+    'ica': {
+        'base_url': 'https://www.ica.se',
+        'recipe_pattern': '/recept/',
+        'skip_patterns': ['/recept/tips/', '/recept/inspiration/', '/recept/matkasse/', '/recept/sok/'],
+        'category_pages': [
+            '/recept/', '/recept/middagstips/', '/recept/vegetariskt/', '/recept/fisk-och-skaldjur/',
+            '/recept/kyckling/', '/recept/kott/', '/recept/pasta-och-ris/', '/recept/sallad/',
+            '/recept/soppa/', '/recept/gratang/', '/recept/gryta/', '/recept/pizza/',
+            '/recept/asiatiskt/', '/recept/indiskt/', '/recept/mexikanskt/', '/recept/italienskt/',
+            '/recept/barnfavoriter/', '/recept/snabbt-och-enkelt/', '/recept/billig-mat/',
+            '/recept/grillat/', '/recept/surdeg/', '/recept/lunch/',
+        ],
+    },
+    'koket': {
+        'base_url': 'https://www.koket.se',
+        'recipe_pattern': '/',  # Köket uses direct URLs like /lasagne/
+        'skip_patterns': ['/kategori/', '/tips/', '/kokbok/', '/mat-dryck/', '/utrustning/'],
+        'category_pages': [
+            '/recept/', '/middagsrecept/', '/vardagsmat/', '/vegetariska-recept/',
+            '/fisk-och-skaldjursrecept/', '/kycklingrecept/', '/pastarecept/', '/gratangrecept/',
+            '/soppa/', '/gryta/', '/sallad/', '/pizza/', '/asiatisk-mat/',
+            '/indisk-mat/', '/mexikanskt/', '/italiensk-mat/', '/snabba-recept/',
+        ],
+        'has_json_ld': True,  # Köket uses structured data we can parse
+    },
+    'tasteline': {
+        'base_url': 'https://www.tasteline.com',
+        'recipe_pattern': '/recept/',
+        'skip_patterns': ['/kategori/', '/tips/', '/om-oss/'],
+        'category_pages': [
+            '/recept/', '/recept/middag/', '/recept/vegetariskt/', '/recept/fisk/',
+            '/recept/kyckling/', '/recept/kott/', '/recept/pasta/', '/recept/sallad/',
+            '/recept/soppa/', '/recept/gratang/', '/recept/gryta/', '/recept/pizza/',
+            '/recept/asiatiskt/', '/recept/indiskt/', '/recept/mexikanskt/', '/recept/italienskt/',
+        ],
+    },
+    'coop': {
+        'base_url': 'https://www.coop.se',
+        'recipe_pattern': '/recept/',
+        'skip_patterns': ['/recept/kategori/', '/recept/tema/', '/recept/sok/'],
+        'category_pages': [
+            '/recept/', '/recept/kategori/middag/', '/recept/kategori/vegetariskt/',
+            '/recept/kategori/fisk-skaldjur/', '/recept/kategori/kyckling/', '/recept/kategori/kott/',
+            '/recept/kategori/pasta/', '/recept/kategori/sallad/', '/recept/kategori/soppa/',
+            '/recept/kategori/gratang/', '/recept/kategori/gryta/', '/recept/kategori/pizza/',
+            '/recept/kategori/snabb-mat/', '/recept/kategori/barnmat/',
+        ],
+    },
+    'receptse': {
+        'base_url': 'https://recept.se',
+        'recipe_pattern': '/',  # recept.se uses direct URLs
+        'skip_patterns': ['/kategori/', '/om/', '/kontakt/', '/tips/'],
+        'category_pages': [
+            '/', '/middag/', '/vegetariskt/', '/fisk/', '/kyckling/', '/kott/',
+            '/pasta/', '/sallad/', '/soppa/', '/gratang/', '/gryta/',
+        ],
+    },
+    'godare': {
+        'base_url': 'https://www.godare.se',
+        'recipe_pattern': '/recept/',
+        'skip_patterns': ['/recept/kategori/', '/recept/sok/'],
+        'category_pages': [
+            '/recept/', '/recept/middag/', '/recept/vegetariskt/', '/recept/fisk/',
+            '/recept/kyckling/', '/recept/kott/', '/recept/pasta/', '/recept/sallad/',
+            '/recept/soppa/', '/recept/gryta/',
+        ],
+    },
+}
+
+
+def get_recipe_urls(source: str, limit: int = 100) -> list:
+    """Get recipe URLs from any supported source."""
+
+    if source not in SOURCE_CONFIG:
+        print(f"Unknown source: {source}")
+        return []
+
+    config = SOURCE_CONFIG[source]
+    base_url = config['base_url']
+    recipe_pattern = config['recipe_pattern']
+    skip_patterns = config.get('skip_patterns', [])
+    category_pages = config.get('category_pages', ['/'])
+
+    print(f"Fetching recipe URLs from {source.upper()}...")
+    urls = []
+    seen = set()
+
+    # Get existing URLs to skip
+    existing_urls = get_existing_urls()
+    print(f"  {len(existing_urls)} recipes already in database")
+
+    def is_recipe_url(url: str) -> bool:
+        """Check if URL looks like a recipe page."""
+        if not url.startswith(base_url):
+            return False
+        path = url.replace(base_url, '')
+
+        # Must contain recipe pattern (for most sites)
+        if recipe_pattern != '/' and recipe_pattern not in path:
+            return False
+
+        # Skip known non-recipe patterns
+        if any(skip in path for skip in skip_patterns):
+            return False
+
+        # Must have actual content after the pattern
+        path_parts = path.strip('/').split('/')
+        if recipe_pattern == '/recept/':
+            # For /recept/ sites, need something after /recept/
+            if len(path_parts) < 2 or path_parts[-1] == 'recept':
+                return False
+        elif recipe_pattern == '/':
+            # For sites with direct URLs, need at least one path segment
+            if len(path_parts) < 1 or path_parts[0] == '':
+                return False
+
+        return True
+
+    def add_url(url: str) -> bool:
+        """Add URL if valid and not seen/existing."""
+        # Normalize URL
+        url = url.split('?')[0].split('#')[0]
+        if not url.endswith('/'):
+            url += '/'
+
+        if url in seen or url in existing_urls:
+            return False
+        if not is_recipe_url(url):
+            return False
+
+        seen.add(url)
+        urls.append(url)
+        return True
+
+    def extract_recipe_urls_from_html(html: str) -> list:
+        """Extract recipe URLs from HTML content."""
+        soup = BeautifulSoup(html, 'html.parser')
+        found = []
+
+        for link in soup.find_all('a', href=True):
+            href = link['href']
+
+            # Build full URL
+            if href.startswith('http'):
+                full_url = href
+            elif href.startswith('/'):
+                full_url = f"{base_url}{href}"
+            else:
+                continue
+
+            # Only keep URLs from this source
+            if full_url.startswith(base_url):
+                found.append(full_url)
+
+        return found
+
+    def extract_urls_from_json_ld(html: str) -> list:
+        """Extract recipe URLs from JSON-LD structured data."""
+        soup = BeautifulSoup(html, 'html.parser')
+        found = []
+
+        for script in soup.find_all('script', type='application/ld+json'):
+            try:
+                data = json.loads(script.string)
+                if isinstance(data, list):
+                    for item in data:
+                        if item.get('@type') == 'Recipe' and item.get('url'):
+                            found.append(item['url'])
+                elif isinstance(data, dict):
+                    if data.get('@type') == 'Recipe' and data.get('url'):
+                        found.append(data['url'])
+            except:
+                continue
+
+        return found
+
+    # Strategy 1: Crawl category pages with pagination
+    print(f"  Crawling {len(category_pages)} category pages...")
+
+    for i, cat_path in enumerate(category_pages):
+        if len(urls) >= limit:
+            break
+
+        cat_url = f"{base_url}{cat_path}"
+
+        # Try multiple pages for each category
+        for page_num in range(1, 20):  # Try up to 20 pages per category
+            if len(urls) >= limit:
+                break
+
+            # Common pagination patterns
+            if page_num == 1:
+                page_url = cat_url
+            else:
+                # Try different pagination schemes
+                page_url = f"{cat_url}?page={page_num}"
+
+            try:
+                response = requests.get(page_url, timeout=15, headers=HEADERS)
+                if response.status_code != 200:
+                    break
+
+                # Extract URLs from page
+                found_urls = extract_recipe_urls_from_html(response.text)
+
+                # Also try JSON-LD if supported
+                if config.get('has_json_ld'):
+                    found_urls.extend(extract_urls_from_json_ld(response.text))
+
+                added = 0
+                for url in found_urls:
+                    if add_url(url):
+                        added += 1
+
+                if added > 0:
+                    cat_name = cat_path.strip('/').split('/')[-1] or 'home'
+                    print(f"    [{i+1}/{len(category_pages)}] {cat_name} p{page_num}: +{added} (total: {len(urls)})")
+                elif page_num > 1:
+                    # No new recipes on this page, move to next category
+                    break
+
+            except Exception as e:
+                if page_num == 1:
+                    print(f"    Error crawling {cat_path}: {e}")
+                break
+
+    # Strategy 2: Try sitemap
+    if len(urls) < limit:
+        print(f"  Trying sitemap...")
         try:
-            # Arla has a sitemap index
-            sitemap_url = 'https://www.arla.se/sitemap.xml'
+            sitemap_url = f"{base_url}/sitemap.xml"
             response = requests.get(sitemap_url, timeout=30, headers=HEADERS)
 
             if response.status_code == 200:
-                # Parse sitemap to find recipe sitemap
                 soup = BeautifulSoup(response.text, 'xml')
 
-                # Look for recipe-specific sitemap or parse main sitemap
                 for loc in soup.find_all('loc'):
                     url = loc.text
-                    if 'recept' in url and url.endswith('.xml'):
-                        # Found recipe sitemap, fetch it
-                        print(f"  Found recipe sitemap: {url}")
-                        recipe_sitemap = requests.get(url, timeout=30, headers=HEADERS)
-                        if recipe_sitemap.status_code == 200:
-                            recipe_soup = BeautifulSoup(recipe_sitemap.text, 'xml')
-                            for recipe_loc in recipe_soup.find_all('loc'):
-                                recipe_url = recipe_loc.text
-                                if '/recept/' in recipe_url and not recipe_url.endswith('/recept/'):
-                                    urls.append(recipe_url)
-                                    if len(urls) >= limit:
-                                        break
+
+                    # Direct recipe URL
+                    if add_url(url):
                         if len(urls) >= limit:
                             break
+                        continue
 
-                # If no recipe sitemap found, look for recipe URLs directly
-                if not urls:
-                    for loc in soup.find_all('loc'):
-                        url = loc.text
-                        if '/recept/' in url and not url.endswith('/recept/'):
-                            urls.append(url)
-                            if len(urls) >= limit:
-                                break
+                    # Check nested sitemaps
+                    if url.endswith('.xml'):
+                        try:
+                            child_resp = requests.get(url, timeout=30, headers=HEADERS)
+                            if child_resp.status_code == 200:
+                                child_soup = BeautifulSoup(child_resp.text, 'xml')
+                                for child_loc in child_soup.find_all('loc'):
+                                    if add_url(child_loc.text):
+                                        if len(urls) >= limit:
+                                            break
+                        except:
+                            pass
 
-            if urls:
-                print(f"  Found {len(urls)} recipe URLs from sitemap")
-                return urls[:limit]
-
-        except Exception as e:
-            print(f"  Error fetching sitemap: {e}")
-
-        # Fallback: crawl recipe listing page
-        print("  Falling back to crawling recipe listing...")
-
-        # URLs to skip (not actual recipes)
-        skip_patterns = ['/samling/', '/arla-mat-app/', '/matkanalen/', '/inspiration/', '/arla-mat/']
-
-        try:
-            listing_url = 'https://www.arla.se/recept/'
-            response = requests.get(listing_url, timeout=30, headers=HEADERS)
-
-            if response.status_code == 200:
-                soup = BeautifulSoup(response.text, 'html.parser')
-
-                # Find recipe links
-                for link in soup.find_all('a', href=True):
-                    href = link['href']
-                    if '/recept/' in href and href.count('/') >= 3:
-                        # Skip non-recipe pages
-                        if any(skip in href for skip in skip_patterns):
-                            continue
-                        full_url = href if href.startswith('http') else f"https://www.arla.se{href}"
-                        if full_url not in urls and not full_url.endswith('/recept/'):
-                            urls.append(full_url)
-                            if len(urls) >= limit:
-                                break
-
-                print(f"  Found {len(urls)} recipe URLs from listing")
+                    if len(urls) >= limit:
+                        break
 
         except Exception as e:
-            print(f"  Error crawling listing: {e}")
+            print(f"    Sitemap error: {e}")
 
-        # Ultimate fallback: known popular recipes
-        if not urls:
-            print("  Using fallback list of popular recipes...")
-            urls = [
-                'https://www.arla.se/recept/kottbullar/',
-                'https://www.arla.se/recept/lasagne/',
-                'https://www.arla.se/recept/pannkakor/',
-                'https://www.arla.se/recept/pasta-carbonara/',
-                'https://www.arla.se/recept/korvstroganoff/',
-                'https://www.arla.se/recept/kycklinggryta/',
-                'https://www.arla.se/recept/fiskgratang/',
-                'https://www.arla.se/recept/kottfarssas/',
-                'https://www.arla.se/recept/falukorv-stroganoff/',
-                'https://www.arla.se/recept/raggmunk/',
-                'https://www.arla.se/recept/pytt-i-panna/',
-                'https://www.arla.se/recept/spaghetti-och-kottpullar/',
-                'https://www.arla.se/recept/grillad-kyckling/',
-                'https://www.arla.se/recept/kycklingsallad/',
-                'https://www.arla.se/recept/laxpasta/',
-                'https://www.arla.se/recept/falafel/',
-                'https://www.arla.se/recept/vegetarisk-lasagne/',
-                'https://www.arla.se/recept/potatisgratang/',
-                'https://www.arla.se/recept/chili-con-carne/',
-                'https://www.arla.se/recept/chicken-tikka-masala/',
-            ]
+    # Strategy 3: Crawl related recipes from found pages
+    if len(urls) < limit and len(urls) > 0:
+        print(f"  Looking for related recipes...")
+        sample_urls = list(urls)[:30]
 
-        return urls[:limit]
+        for sample_url in sample_urls:
+            if len(urls) >= limit:
+                break
+            try:
+                response = requests.get(sample_url, timeout=15, headers=HEADERS)
+                if response.status_code == 200:
+                    found = extract_recipe_urls_from_html(response.text)
+                    added = sum(1 for url in found if add_url(url))
+                    if added > 0:
+                        print(f"    +{added} related recipes (total: {len(urls)})")
+            except:
+                pass
 
-    return []
+    print(f"  Found {len(urls)} new recipe URLs to scrape")
+    return urls[:limit]
+
+
+# Keep old function name for backwards compatibility
+def get_recipe_urls_from_sitemap(source: str, limit: int = 100) -> list:
+    """Backwards compatible wrapper for get_recipe_urls."""
+    return get_recipe_urls(source, limit)
 
 
 def main():
     parser = argparse.ArgumentParser(description='Scrape recipes for Meal Planner')
-    parser.add_argument('--source', choices=list(SOURCES.keys()), default='arla',
-                        help='Recipe source to scrape')
+
+    # Allow 'all' as a source option
+    source_choices = list(SOURCES.keys()) + ['all']
+    parser.add_argument('--source', choices=source_choices, default='arla',
+                        help='Recipe source to scrape (use "all" for all sources)')
     parser.add_argument('--url', type=str, help='Scrape a specific URL')
-    parser.add_argument('--limit', type=int, default=10, help='Max recipes to scrape')
+    parser.add_argument('--limit', type=int, default=10, help='Max recipes to scrape (per source if using --source all)')
     parser.add_argument('--meal-type', type=str, default=None,
                         choices=['main', 'dessert', 'breakfast', 'snack', 'drink', 'baking'],
                         help='Only save recipes of this meal type (default: all)')
@@ -507,15 +741,22 @@ def main():
 
     print(f"\n🍽️  Meal Planner Recipe Scraper")
     print(f"   Source: {args.source}")
-    print(f"   Limit: {args.limit}")
+    print(f"   Limit: {args.limit}" + (" per source" if args.source == 'all' else ""))
     if args.meal_type:
         print(f"   Filter: {args.meal_type} only")
     print()
 
     if args.url:
-        # Scrape single URL
-        print(f"Scraping: {args.url}")
-        recipe = scrape_recipe(args.url, args.source)
+        # Scrape single URL - detect source from URL
+        detected_source = None
+        for src, cfg in SOURCES.items():
+            if cfg['base_url'] in args.url:
+                detected_source = src
+                break
+        source = detected_source or args.source
+
+        print(f"Scraping: {args.url} (source: {source})")
+        recipe = scrape_recipe(args.url, source)
         if recipe:
             # Check meal type filter
             if args.meal_type:
@@ -527,35 +768,57 @@ def main():
             else:
                 save_recipe(recipe)
     else:
-        # Scrape multiple
-        urls = get_recipe_urls_from_sitemap(args.source, args.limit * 3 if args.meal_type else args.limit)
-        print(f"Found {len(urls)} URLs to scrape\n")
+        # Determine which sources to scrape
+        sources_to_scrape = list(SOURCES.keys()) if args.source == 'all' else [args.source]
 
-        success = 0
-        skipped = 0
-        for i, url in enumerate(urls, 1):
-            # Stop if we have enough recipes of the desired type
-            if args.meal_type and success >= args.limit:
-                break
+        total_success = 0
+        total_skipped = 0
 
-            print(f"[{i}/{len(urls)}] {url}")
-            recipe = scrape_recipe(url, args.source)
+        for source in sources_to_scrape:
+            if args.source == 'all':
+                print(f"\n{'='*60}")
+                print(f"  Scraping from {source.upper()}")
+                print(f"{'='*60}\n")
 
-            if recipe:
-                # Check meal type filter
-                if args.meal_type:
-                    recipe_meal_type = recipe.get('features', {}).get('meal_type', 'main')
-                    if recipe_meal_type != args.meal_type:
-                        print(f"  ⏭️  Skipped: meal_type={recipe_meal_type} (wanted {args.meal_type})")
-                        skipped += 1
-                        continue
+            # Get URLs for this source
+            urls = get_recipe_urls(source, args.limit * 3 if args.meal_type else args.limit)
+            print(f"Found {len(urls)} URLs to scrape\n")
 
-                if save_recipe(recipe):
-                    success += 1
+            success = 0
+            skipped = 0
+            for i, url in enumerate(urls, 1):
+                # Stop if we have enough recipes of the desired type
+                if args.meal_type and success >= args.limit:
+                    break
 
-        print(f"\n✅ Done! Saved {success} recipes")
-        if args.meal_type:
-            print(f"   Skipped {skipped} recipes (wrong meal type)")
+                print(f"[{i}/{len(urls)}] {url}")
+                recipe = scrape_recipe(url, source)
+
+                if recipe:
+                    # Check meal type filter
+                    if args.meal_type:
+                        recipe_meal_type = recipe.get('features', {}).get('meal_type', 'main')
+                        if recipe_meal_type != args.meal_type:
+                            print(f"  ⏭️  Skipped: meal_type={recipe_meal_type} (wanted {args.meal_type})")
+                            skipped += 1
+                            continue
+
+                    if save_recipe(recipe):
+                        success += 1
+
+            print(f"\n✅ {source.upper()}: Saved {success} recipes")
+            if args.meal_type:
+                print(f"   Skipped {skipped} recipes (wrong meal type)")
+
+            total_success += success
+            total_skipped += skipped
+
+        if args.source == 'all':
+            print(f"\n{'='*60}")
+            print(f"  TOTAL: Saved {total_success} recipes from {len(sources_to_scrape)} sources")
+            if args.meal_type:
+                print(f"  Skipped {total_skipped} recipes (wrong meal type)")
+            print(f"{'='*60}")
 
 
 if __name__ == '__main__':
