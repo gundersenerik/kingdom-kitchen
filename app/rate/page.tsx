@@ -79,9 +79,11 @@ export default function RatePage() {
           const data = await response.json();
           setRecipe(data.recipe);
 
-          // Prefetch next one
-          const next = await prefetchNextRecipe();
-          setNextRecipe(next);
+          // Prefetch next one (exclude current)
+          if (data.recipe) {
+            const next = await prefetchNextRecipe(data.recipe.id);
+            setNextRecipe(next);
+          }
         }
       } catch (err) {
         console.error('Init error:', err);
@@ -127,22 +129,29 @@ export default function RatePage() {
       // Store the current recipe ID before moving on
       const currentRecipeId = recipe.id;
 
-      // Move to next recipe - if we have a prefetched one, use it
-      // Otherwise fetch a new one immediately
+      // Move to next recipe IMMEDIATELY - don't wait for prefetch
       if (nextRecipe) {
-        setRecipe(nextRecipe);
+        // We have a prefetched recipe - show it immediately
+        const showNow = nextRecipe;
+        setRecipe(showNow);
         setNextRecipe(null);
-        // Prefetch another (exclude the one we just showed)
-        const next = await prefetchNextRecipe(nextRecipe.id);
-        setNextRecipe(next);
+
+        // Prefetch another in the background (don't await)
+        prefetchNextRecipe(showNow.id).then(next => {
+          setNextRecipe(next);
+        });
       } else {
-        // No prefetched recipe available, fetch one now (exclude the one we just rated)
+        // No prefetched recipe - need to fetch one
+        // Show loading state briefly while we get it
         const next = await prefetchNextRecipe(currentRecipeId);
-        setRecipe(next);
-        // And prefetch another
         if (next) {
-          const nextNext = await prefetchNextRecipe(next.id);
-          setNextRecipe(nextNext);
+          setRecipe(next);
+          // Prefetch another in the background
+          prefetchNextRecipe(next.id).then(nextNext => {
+            setNextRecipe(nextNext);
+          });
+        } else {
+          setRecipe(null); // No more recipes
         }
       }
 

@@ -212,14 +212,18 @@ def extract_features(ingredients: list, name: str, prep_time: int = 0, cook_time
     """Extract structured features from recipe data."""
     features = {}
 
-    # Combine all text
+    # Combine all text for ingredient analysis
     all_text = ' '.join([name.lower()] + [i.lower() for i in ingredients])
 
-    # Detect meal type
+    # For meal type detection, ONLY use the recipe name
+    # This prevents false positives from ingredients like "juice" (citrus juice) or "grädde" (cream)
+    name_lower = name.lower()
+
+    # Detect meal type based on recipe NAME only
     meal_type = 'main'  # Default to main dish (lunch/dinner)
     for mtype, keywords in MEAL_TYPE_KEYWORDS.items():
         for keyword in keywords:
-            if keyword in all_text:
+            if keyword in name_lower:
                 meal_type = mtype
                 break
         if meal_type != 'main':
@@ -495,33 +499,63 @@ def main():
                         help='Recipe source to scrape')
     parser.add_argument('--url', type=str, help='Scrape a specific URL')
     parser.add_argument('--limit', type=int, default=10, help='Max recipes to scrape')
-    
+    parser.add_argument('--meal-type', type=str, default=None,
+                        choices=['main', 'dessert', 'breakfast', 'snack', 'drink', 'baking'],
+                        help='Only save recipes of this meal type (default: all)')
+
     args = parser.parse_args()
-    
+
     print(f"\n🍽️  Meal Planner Recipe Scraper")
     print(f"   Source: {args.source}")
     print(f"   Limit: {args.limit}")
+    if args.meal_type:
+        print(f"   Filter: {args.meal_type} only")
     print()
-    
+
     if args.url:
         # Scrape single URL
         print(f"Scraping: {args.url}")
         recipe = scrape_recipe(args.url, args.source)
         if recipe:
-            save_recipe(recipe)
+            # Check meal type filter
+            if args.meal_type:
+                recipe_meal_type = recipe.get('features', {}).get('meal_type', 'main')
+                if recipe_meal_type != args.meal_type:
+                    print(f"  Skipped: {recipe['name']} (meal_type={recipe_meal_type}, wanted {args.meal_type})")
+                else:
+                    save_recipe(recipe)
+            else:
+                save_recipe(recipe)
     else:
         # Scrape multiple
-        urls = get_recipe_urls_from_sitemap(args.source, args.limit)
+        urls = get_recipe_urls_from_sitemap(args.source, args.limit * 3 if args.meal_type else args.limit)
         print(f"Found {len(urls)} URLs to scrape\n")
-        
+
         success = 0
+        skipped = 0
         for i, url in enumerate(urls, 1):
+            # Stop if we have enough recipes of the desired type
+            if args.meal_type and success >= args.limit:
+                break
+
             print(f"[{i}/{len(urls)}] {url}")
             recipe = scrape_recipe(url, args.source)
-            if recipe and save_recipe(recipe):
-                success += 1
-        
-        print(f"\n✅ Done! Saved {success}/{len(urls)} recipes")
+
+            if recipe:
+                # Check meal type filter
+                if args.meal_type:
+                    recipe_meal_type = recipe.get('features', {}).get('meal_type', 'main')
+                    if recipe_meal_type != args.meal_type:
+                        print(f"  ⏭️  Skipped: meal_type={recipe_meal_type} (wanted {args.meal_type})")
+                        skipped += 1
+                        continue
+
+                if save_recipe(recipe):
+                    success += 1
+
+        print(f"\n✅ Done! Saved {success} recipes")
+        if args.meal_type:
+            print(f"   Skipped {skipped} recipes (wrong meal type)")
 
 
 if __name__ == '__main__':
