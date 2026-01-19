@@ -182,7 +182,8 @@ export async function getFamilySuggestions(
 export async function getNextRecipeToRate(
   profileId: string,
   authHeader: string,
-  excludeId?: string
+  excludeId?: string,
+  mealType: string = 'main'
 ): Promise<Recipe | null> {
   const supabase = createServerClient(authHeader);
 
@@ -211,6 +212,12 @@ export async function getNextRecipeToRate(
   let query = supabase
     .from('recipes')
     .select('*');
+
+  // Filter by meal type - only show main dishes (lunch/dinner) by default
+  // This filters out desserts, drinks, breakfast items, etc.
+  if (mealType) {
+    query = query.filter('features->>meal_type', 'eq', mealType);
+  }
 
   if (ratedIds.length > 0) {
     query = query.not('id', 'in', `(${ratedIds.join(',')})`);

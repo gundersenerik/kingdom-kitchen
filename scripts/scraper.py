@@ -85,13 +85,39 @@ CARB_KEYWORDS = {
     'couscous': 'couscous', 'nudlar': 'noodles', 'bulgur': 'bulgur',
 }
 
+# Meal type detection keywords
+MEAL_TYPE_KEYWORDS = {
+    'dessert': ['tårta', 'kaka', 'muffins', 'cupcake', 'brownie', 'glass', 'mousse',
+                'pannacotta', 'cheesecake', 'kladdkaka', 'chokladboll', 'biskvi',
+                'dessert', 'efterrätt', 'godis', 'karamell', 'praliner'],
+    'breakfast': ['frukost', 'morgon', 'overnight', 'granola', 'müsli', 'gröt',
+                  'äggröra', 'omelett', 'smoothie bowl'],
+    'snack': ['snacks', 'tilltugg', 'mellanmål', 'dippsås', 'chips', 'popcorn'],
+    'drink': ['dryck', 'smoothie', 'juice', 'lemonad', 'kaffe', 'te', 'cocktail',
+              'milkshake', 'drink'],
+    'baking': ['baka', 'bakelse', 'bröd', 'bulle', 'kanelbulle', 'kardemummabulle',
+               'scones', 'croissant'],
+    # If none of the above match, it's likely a main dish (lunch/dinner)
+}
+
 
 def extract_features(ingredients: list, name: str, prep_time: int = 0, cook_time: int = 0) -> dict:
     """Extract structured features from recipe data."""
     features = {}
-    
+
     # Combine all text
     all_text = ' '.join([name.lower()] + [i.lower() for i in ingredients])
+
+    # Detect meal type
+    meal_type = 'main'  # Default to main dish (lunch/dinner)
+    for mtype, keywords in MEAL_TYPE_KEYWORDS.items():
+        for keyword in keywords:
+            if keyword in all_text:
+                meal_type = mtype
+                break
+        if meal_type != 'main':
+            break
+    features['meal_type'] = meal_type
     
     # Extract proteins
     proteins = set()
