@@ -120,13 +120,22 @@ export default function RatePage() {
 
       setRatingCount(prev => prev + 1);
 
-      // Move to next recipe
-      setRecipe(nextRecipe);
-      setNextRecipe(null);
-
-      // Prefetch another
-      const next = await prefetchNextRecipe();
-      setNextRecipe(next);
+      // Move to next recipe - if we have a prefetched one, use it
+      // Otherwise fetch a new one immediately
+      if (nextRecipe) {
+        setRecipe(nextRecipe);
+        setNextRecipe(null);
+        // Prefetch another
+        const next = await prefetchNextRecipe();
+        setNextRecipe(next);
+      } else {
+        // No prefetched recipe available, fetch one now
+        const next = await prefetchNextRecipe();
+        setRecipe(next);
+        // And prefetch another
+        const nextNext = await prefetchNextRecipe();
+        setNextRecipe(nextNext);
+      }
 
     } catch (err) {
       console.error('Rating error:', err);
