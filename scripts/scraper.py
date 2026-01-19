@@ -267,7 +267,12 @@ def extract_features(ingredients: list, name: str, prep_time: int = 0, cook_time
 def scrape_recipe(url: str, source: str) -> Optional[dict]:
     """Scrape a single recipe URL."""
     try:
-        scraper = scrape_me(url, wild_mode=True)
+        # Try with wild_mode first (newer versions), fall back to without it
+        try:
+            scraper = scrape_me(url, wild_mode=True)
+        except TypeError:
+            # Older version of recipe-scrapers doesn't support wild_mode
+            scraper = scrape_me(url)
         
         # Extract data
         ingredients_raw = scraper.ingredients()
@@ -424,6 +429,10 @@ def get_recipe_urls_from_sitemap(source: str, limit: int = 100) -> list:
 
         # Fallback: crawl recipe listing page
         print("  Falling back to crawling recipe listing...")
+
+        # URLs to skip (not actual recipes)
+        skip_patterns = ['/samling/', '/arla-mat-app/', '/matkanalen/', '/inspiration/', '/arla-mat/']
+
         try:
             listing_url = 'https://www.arla.se/recept/'
             response = requests.get(listing_url, timeout=30, headers=HEADERS)
@@ -435,6 +444,9 @@ def get_recipe_urls_from_sitemap(source: str, limit: int = 100) -> list:
                 for link in soup.find_all('a', href=True):
                     href = link['href']
                     if '/recept/' in href and href.count('/') >= 3:
+                        # Skip non-recipe pages
+                        if any(skip in href for skip in skip_patterns):
+                            continue
                         full_url = href if href.startswith('http') else f"https://www.arla.se{href}"
                         if full_url not in urls and not full_url.endswith('/recept/'):
                             urls.append(full_url)
