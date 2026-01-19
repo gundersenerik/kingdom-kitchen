@@ -373,24 +373,107 @@ def save_recipe(recipe: dict) -> bool:
 
 def get_recipe_urls_from_sitemap(source: str, limit: int = 100) -> list:
     """Get recipe URLs from a source's sitemap or listing."""
-    # This is a simplified version - in production you'd parse actual sitemaps
-    # For demo purposes, returning some known recipe URLs
-    
+
     if source == 'arla':
-        # Sample Arla recipes
-        return [
-            'https://www.arla.se/recept/kottbullar/',
-            'https://www.arla.se/recept/lasagne/',
-            'https://www.arla.se/recept/pannkakor/',
-            'https://www.arla.se/recept/pasta-carbonara/',
-            'https://www.arla.se/recept/tacos/',
-            'https://www.arla.se/recept/kycklinggryta/',
-            'https://www.arla.se/recept/fiskgratang/',
-            'https://www.arla.se/recept/kottfarssas/',
-            'https://www.arla.se/recept/falukorv-stroganoff/',
-            'https://www.arla.se/recept/raggmunk/',
-        ][:limit]
-    
+        # Fetch real recipe URLs from Arla's sitemap
+        print("Fetching recipe URLs from Arla sitemap...")
+        urls = []
+
+        try:
+            # Arla has a sitemap index
+            sitemap_url = 'https://www.arla.se/sitemap.xml'
+            response = requests.get(sitemap_url, timeout=30, headers=HEADERS)
+
+            if response.status_code == 200:
+                # Parse sitemap to find recipe sitemap
+                soup = BeautifulSoup(response.text, 'xml')
+
+                # Look for recipe-specific sitemap or parse main sitemap
+                for loc in soup.find_all('loc'):
+                    url = loc.text
+                    if 'recept' in url and url.endswith('.xml'):
+                        # Found recipe sitemap, fetch it
+                        print(f"  Found recipe sitemap: {url}")
+                        recipe_sitemap = requests.get(url, timeout=30, headers=HEADERS)
+                        if recipe_sitemap.status_code == 200:
+                            recipe_soup = BeautifulSoup(recipe_sitemap.text, 'xml')
+                            for recipe_loc in recipe_soup.find_all('loc'):
+                                recipe_url = recipe_loc.text
+                                if '/recept/' in recipe_url and not recipe_url.endswith('/recept/'):
+                                    urls.append(recipe_url)
+                                    if len(urls) >= limit:
+                                        break
+                        if len(urls) >= limit:
+                            break
+
+                # If no recipe sitemap found, look for recipe URLs directly
+                if not urls:
+                    for loc in soup.find_all('loc'):
+                        url = loc.text
+                        if '/recept/' in url and not url.endswith('/recept/'):
+                            urls.append(url)
+                            if len(urls) >= limit:
+                                break
+
+            if urls:
+                print(f"  Found {len(urls)} recipe URLs from sitemap")
+                return urls[:limit]
+
+        except Exception as e:
+            print(f"  Error fetching sitemap: {e}")
+
+        # Fallback: crawl recipe listing page
+        print("  Falling back to crawling recipe listing...")
+        try:
+            listing_url = 'https://www.arla.se/recept/'
+            response = requests.get(listing_url, timeout=30, headers=HEADERS)
+
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.text, 'html.parser')
+
+                # Find recipe links
+                for link in soup.find_all('a', href=True):
+                    href = link['href']
+                    if '/recept/' in href and href.count('/') >= 3:
+                        full_url = href if href.startswith('http') else f"https://www.arla.se{href}"
+                        if full_url not in urls and not full_url.endswith('/recept/'):
+                            urls.append(full_url)
+                            if len(urls) >= limit:
+                                break
+
+                print(f"  Found {len(urls)} recipe URLs from listing")
+
+        except Exception as e:
+            print(f"  Error crawling listing: {e}")
+
+        # Ultimate fallback: known popular recipes
+        if not urls:
+            print("  Using fallback list of popular recipes...")
+            urls = [
+                'https://www.arla.se/recept/kottbullar/',
+                'https://www.arla.se/recept/lasagne/',
+                'https://www.arla.se/recept/pannkakor/',
+                'https://www.arla.se/recept/pasta-carbonara/',
+                'https://www.arla.se/recept/korvstroganoff/',
+                'https://www.arla.se/recept/kycklinggryta/',
+                'https://www.arla.se/recept/fiskgratang/',
+                'https://www.arla.se/recept/kottfarssas/',
+                'https://www.arla.se/recept/falukorv-stroganoff/',
+                'https://www.arla.se/recept/raggmunk/',
+                'https://www.arla.se/recept/pytt-i-panna/',
+                'https://www.arla.se/recept/spaghetti-och-kottpullar/',
+                'https://www.arla.se/recept/grillad-kyckling/',
+                'https://www.arla.se/recept/kycklingsallad/',
+                'https://www.arla.se/recept/laxpasta/',
+                'https://www.arla.se/recept/falafel/',
+                'https://www.arla.se/recept/vegetarisk-lasagne/',
+                'https://www.arla.se/recept/potatisgratang/',
+                'https://www.arla.se/recept/chili-con-carne/',
+                'https://www.arla.se/recept/chicken-tikka-masala/',
+            ]
+
+        return urls[:limit]
+
     return []
 
 
